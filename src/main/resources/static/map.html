@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Map</title>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <script src="./js/util.js"></script>
+    <script src="./js/actor.js"></script>
+</head>
+
+<body>
+
+<div>
+    mode:
+    <select id="mode" onchange="loadMap()">
+        <option value="0">line</option>
+        <option value="1">move</option>
+    </select>
+    map:
+    <select id="mapKey" onchange="loadMap()">
+        <option value="test">test</option>
+        <option value="zelda">zelda</option>
+    </select>
+    ratio:
+    <select id="ratio" onchange="loadMap()">
+        <option value="0">auto</option>
+        <option value="5">5</option>
+        <option value="10">10</option>
+        <option value="15">15</option>
+    </select>
+    speed:
+    <select id="speed" onchange="updateSpeed()">
+        <option value="1">1</option>
+        <option value="5">5</option>
+        <option value="10">10</option>
+        <option value="15">15</option>
+    </select>
+    direction:
+    <select id="direction" onchange="updateDirection()">
+        <option value="Eight">Eight</option>
+        <option value="Four">Four</option>
+    </select>
+    merge:
+    <select id="mergePath" onchange="updateMergePath()">
+        <option value="false">false</option>
+        <option value="true">true</option>
+    </select>
+    <button onclick="login()">login</button>
+    <button onclick="callPet()">pet</button>
+    <button onclick="redMoon()">red moon</button>
+</div>
+
+<div style="margin-top:10px">
+    <canvas id="myCanvas" width="1000" height="800" style="border: 0 solid black;">
+        <p>你的浏览器不支持Canvas</p>
+    </canvas>
+</div>
+
+
+<script type="text/javascript">
+
+    const canvas = document.getElementById('myCanvas');
+    canvas.addEventListener('click', click, false);
+    const ctx = canvas.getContext('2d');
+
+    const MODE_LINE = 0;
+    const MODE_MOVE = 1;
+    const MAP_KEY_ZELDA = 'zelda';
+    const FRAME_MILLI = 30;
+    const PET_MAX = 4;
+    const USER_COLOR = '#000000';
+    const MONSTER_COLOR = '#ff1745';
+    const CLEAR_COLOR = '#ffffff'
+    const PET_COLOR_LIST = ['#f48fb0', '#7b1fa2', '#9e9e9e', '#18ffff'];
+    const ACTOR_TYPE = {
+        USER: 0,
+        PET: 1,
+        MONSTER: 2
+    }
+    const MONSTER_AREA_LIST = [
+        {
+            min: {col: 70, row: 190},
+            max: {col: 140, row: 240}
+        },
+        {
+            min: {col: 230, row: 230},
+            max: {col: 300, row: 249}
+        },
+        {
+            min: {col: 420, row: 60},
+            max: {col: 460, row: 120}
+        }
+    ];
+
+    const mapArrayMap = {};
+
+    let mode = MODE_LINE;
+
+    let lineStartPoint;
+    let lineEndPoint;
+
+    let speed = 1; // 每帧移动像素
+    let direction = 'Eight';
+    let mergePath = 'false';
+    let mapKey;
+    let mapArray;
+    let mapWidth;
+    let mapHeight;
+    let ratio;
+    let user;
+    let actorList = [];
+    let petList = [];
+    let monsterList = [];
+
+    window.onload = init;
+
+    function clear() {
+        drawMap(true);
+        lineStartPoint = null;
+        lineEndPoint = null;
+
+        mapKey = null;
+        mapArray = null;
+        mapWidth = null;
+        mapHeight = null;
+        ratio = null;
+        user = null;
+        actorList = [];
+        petList = [];
+        monsterList = [];
+    }
+
+    function loadMapData(mapData) {
+        mapArray = mapData;
+        mapHeight = mapArray.length;
+        mapWidth = mapArray[0].length;
+        mapArrayMap[mapKey] = mapArray;
+
+
+        if (ratio < 1) {
+            if (window.innerHeight / mapHeight < window.innerWidth / mapWidth) {
+                const maxHeight = Math.floor(window.innerHeight / 100) * 100;
+                ratio = Math.floor(maxHeight / mapHeight);
+            } else {
+                const maxWidth = Math.floor(window.innerWidth / 100) * 100;
+                ratio = Math.floor(maxWidth / mapWidth);
+            }
+        }
+
+        canvas.width = mapWidth * ratio;
+        canvas.height = mapHeight * ratio;
+
+        drawMap();
+    }
+
+    function loadMap() {
+        clear();
+        mode = Number.parseInt(document.getElementById('mode').value, 10);
+        mapKey = document.getElementById('mapKey').value;
+        ratio = Number.parseInt(document.getElementById('ratio').value, 10);
+        if (mapArrayMap[mapKey]) {
+            loadMapData(mapArrayMap[mapKey]);
+            return;
+        }
+
+        axios.get('/map/data/' + mapKey).then((res) => {
+            loadMapData(res.data.array);
+        });
+    }
+
+    function run() {
+        setInterval(() => {
+            if (!actorList.length) {
+                return;
+            }
+            let draw = false;
+
+            // 玩家移动
+            if (user) {
+                const userMoveResult = user.move();
+                if (userMoveResult) {
+                    draw = true;
+                    if (!isSamePoint(userMoveResult.oldPoint, user.userPoint)) {
+                        petFollow(user.userPoint);// 宠物移动
+                        monsterAttack(user.userPoint);// 怪物攻击
+                    }
+                }
+            }
+
+            // 宠物移动
+            for (const pet of petList) {
+                const petMoveResult = pet.move();
+                if (petMoveResult) {
+                    draw = true;
+                }
+            }
+
+            // 怪物移动
+            for (let monster of monsterList) {
+                const monsterMoveResult = monster.move();
+                if (monsterMoveResult) {
+                    draw = true;
+                } else {
+                    monster.patrol(mapArray, user);
+                }
+            }
+
+            // 绘制地图
+            if (draw) {
+                runDraw();
+            }
+        }, FRAME_MILLI);
+    }
+
+    function init() {
+        loadMap();
+        run();
+    }
+
+    async function click(e) {
+        if (mode === MODE_LINE) {
+            if (lineStartPoint && lineEndPoint) {
+                drawMap();
+                lineStartPoint = null;
+                lineEndPoint = null;
+            }
+
+            const clickPoint = getClickPoint(e);
+            if (!lineStartPoint) {
+                lineStartPoint = clickPoint;
+                drawLinePoint(clickPoint);
+            } else {
+                lineEndPoint = clickPoint;
+                const pointList = await findPath(lineStartPoint, lineEndPoint);
+                if (!pointList.length) {
+                    return;
+                }
+                for (const pathPoint of pointList) {
+                    drawLinePoint(pathPoint);
+                }
+            }
+        } else {
+            if (!user) {
+                alert('please login first');
+                return;
+            }
+            const clickPoint = getClickPoint(e);
+            if (isSamePoint(user.userPoint, clickPoint)) {
+                return;
+            }
+
+            const pointList = await findPath(user.userPoint, clickPoint);
+            if (!pointList.length) {
+                return;
+            }
+
+            const targetList = pointList.slice(1).map(point => {
+                return {col: point.col, row: point.row};
+            });
+            user.setTargetList(targetList);
+        }
+    }
+
+    function updateSpeed() {
+        const speedSelect = document.getElementById('speed');
+        speed = Number.parseInt(speedSelect.value, 10);
+    }
+
+    function updateDirection() {
+        direction = document.getElementById('direction').value;
+    }
+
+    function updateMergePath() {
+        mergePath = document.getElementById('mergePath').value;
+    }
+
+    function login() {
+        if (mode !== MODE_MOVE) {
+            alert('wrong mode');
+            return;
+        }
+        if (user) {
+            alert('already login');
+            return;
+        }
+        axios.get('/map/login/' + mapKey).then(res => {
+            const data = res.data;
+            const point = {col: data.col, row: data.row};
+            user = new User(data.id, point, USER_COLOR, getActorRadius(ACTOR_TYPE.USER), false);
+            actorList.push(user);
+        })
+    }
+
+    function callPet() {
+        if (mode !== MODE_MOVE) {
+            alert('wrong mode');
+            return;
+        }
+        if (!user) {
+            alert('user not login');
+            return;
+        }
+        if (user.isMoving()) {
+            alert('user is moving');
+            return;
+        }
+        if (petList.length >= PET_MAX) {
+            alert('pet too much');
+            return;
+        }
+        const petPoint = randomSurroundingPointCanMove(user.userPoint, mapArray, actorList);
+        if (!petPoint) {
+            alert('please move to open ground');
+            return;
+        }
+        const pet = new User(user.uid + '-' + petList.length, petPoint, PET_COLOR_LIST[petList.length], getActorRadius(ACTOR_TYPE.PET), true);
+        petList.push(pet);
+        actorList.push(pet);
+    }
+
+    function redMoon() {
+        if (mode !== MODE_MOVE) {
+            alert('wrong mode');
+            return;
+        }
+        if (mapKey !== MAP_KEY_ZELDA) {
+            alert('only support zelda');
+            return;
+        }
+        if (monsterList.length) {
+            alert('red moon already come');
+            return;
+        }
+
+        for (let area of MONSTER_AREA_LIST) {
+            const birthPoint = randomPointCanMoveByColAndRow(area.min.col, area.max.col, area.min.row, area.max.row, mapArray);
+            const monster = new Monster('', birthPoint, MONSTER_COLOR, getActorRadius(ACTOR_TYPE.MONSTER), true, area.min, area.max);
+            monsterList.push(monster);
+            actorList.push(monster);
+        }
+    }
+
+    function petFollow(userPoint) {
+        if (!petList.length) {
+            return;
+        }
+        petList.forEach(pet => {
+            pet.followPoint(userPoint, mapArray, actorList);
+        })
+    }
+
+    function monsterAttack(userPoint) {
+        if (!monsterList.length) {
+            return;
+        }
+        monsterList.forEach(monster => {
+            monster.monsterAttack(userPoint, mapArray);
+        })
+    }
+
+    function runDraw() {
+        // 方案一：直接刷全图
+        // drawMap();
+
+        // 方案二：刷 actor 所在 point 周围
+        const layer = Math.ceil(speed / ratio) * 2;
+        const refreshPointList = [];
+        for (const actor of actorList) {
+            refreshPointList.push(actor.userPoint);
+            refreshPointList.push(...getSurroundingPoint(actor.userPoint, mapArray, layer));
+        }
+        for (let point of refreshPointList) {
+            let nodeType = mapArray[point.row][point.col];
+            drawRect(point, getColorByNodeType(nodeType));
+        }
+
+        for (const actor of actorList) {
+            drawActor(actor);
+        }
+    }
+
+    function drawMap(isClear) {
+        for (let i = 0; i < mapHeight; i++) {
+            for (let j = 0; j < mapWidth; j++) {
+                const color = isClear ? CLEAR_COLOR : getColorByNodeType(mapArray[i][j]);
+                drawRect({col: j, row: i}, color);
+            }
+        }
+    }
+
+    function drawActor(actor) {
+        ctx.beginPath();
+        ctx.fillStyle = actor.userColor;
+        const radius = actor.radius;
+        const pixel = actor.userPixel;
+        ctx.arc(pixel.x, pixel.y, radius, 0, Math.PI * 2, true);
+        ctx.closePath();
+        ctx.fill();
+    }
+
+    function drawLinePoint(point) {
+        ctx.beginPath();
+        ctx.fillStyle = USER_COLOR;
+        const radius = ratio / 2;
+        const pixel = calculatePixelByPoint(point);
+        ctx.arc(pixel.x, pixel.y, radius, 0, Math.PI * 2, true);
+        ctx.closePath();
+        ctx.fill();
+    }
+
+    function drawRect(point, color) {
+        ctx.fillStyle = color;
+        ctx.fillRect(point.col * ratio, point.row * ratio, ratio, ratio);
+    }
+
+    function getActorRadius(actorType) {
+        let radius = ratio / 2;
+        if (mapKey === MAP_KEY_ZELDA) {
+            if (actorType === ACTOR_TYPE.PET) {
+                radius = ratio * 3 / 8;
+            } else {
+                radius = ratio / 2;
+            }
+        } else {
+            if (actorType === ACTOR_TYPE.PET) {
+                radius = ratio / 4;
+            } else {
+                radius = ratio * 3 / 8;
+            }
+        }
+        return radius;
+    }
+
+</script>
+</body>
+
+</html>

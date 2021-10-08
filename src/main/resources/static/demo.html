@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document</title>
+
+  <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap.min.css" integrity="sha384-HSMxcRTRxnN+Bdg0JdbxYKrThecOKuH5zCYotlSAcp1+c8xmyTe9GYg1l9a69psu" crossorigin="anonymous">
+  <script src="https://stackpath.bootstrapcdn.com/bootstrap/3.4.1/js/bootstrap.min.js" integrity="sha384-aJ21OjlMXNL5UyIl/XNwTMqvzeRMZH2w8c5cRVpzpU8Y5bApTppSuUkhZXN0VxHd" crossorigin="anonymous"></script>
+</head>
+
+<body>
+
+  <table border="0">
+    <tr>
+      <td colspan="2">
+        <canvas id="myCanvas" width="900" height="500" style="border:1px solid">
+          <p>你的浏览器不支持Canvas</p>
+        </canvas>
+      </td>
+    </tr>
+  </table>
+
+  <script type="text/javascript">
+
+    var canvas = document.getElementById('myCanvas');
+    var ctx = canvas.getContext('2d');
+
+    const interval = 50;
+    const next = 500;
+    const count = Math.floor(next / interval);
+
+    let nowPos = randomPosition();
+    const speed = 100;
+
+    let finalPos = randomPosition();
+    let move = calculateMove(nowPos, finalPos, speed);
+    let nextPos = calculateNextPosition(nowPos, finalPos, move);
+    let printMove = calculateMoveByTime(nowPos, nextPos, count)
+
+    setInterval(() => {
+      move = calculateMove(nowPos, finalPos, speed);
+      nextPos = calculateNextPosition(nowPos, finalPos, move);
+      printMove = calculateMoveByTime(nowPos, nextPos, count);
+
+      if (isSamPosition(nextPos, finalPos)) {
+        finalPos = randomPosition();
+      }
+    }, next);
+
+    setInterval(function () {
+      if (isSamPosition(nowPos, nextPos)) {
+        return;
+      }
+
+      refreshBackgroud();
+      printPosition(finalPos, 'yellow');
+      printPosition(nextPos, 'blue');
+
+      nowPos = calculateNextPosition(nowPos, nextPos, printMove);
+      printPosition(nowPos, 'white');
+    }, interval);
+
+    function getDistance(pos1, pos2) {
+      const diffX = Math.abs(pos2.x - pos1.x);
+      const diffY = Math.abs(pos2.y - pos1.y);
+      return Math.ceil(Math.sqrt(diffX * diffX + diffY * diffY));
+    }
+
+    function randomPosition() {
+      const x = Math.floor(Math.random() * canvas.width);
+      const y = Math.floor(Math.random() * canvas.height);
+      console.log('position:', x, y);
+      return { x, y };
+    }
+
+    function calculateMove(pos1, pos2, speed) {
+      const distance = getDistance(pos1, pos2);
+      const time = Math.ceil(distance / speed);
+      return calculateMoveByTime(pos1, pos2, time);
+    }
+
+    function calculateMoveByTime(pos1, pos2, time) {
+      const x = Math.abs(pos2.x - pos1.x) / time;
+      const y = Math.abs(pos2.y - pos1.y) / time;
+      return { x, y };
+    }
+
+    function isSamPosition(pos1, pos2) {
+      return pos1.x === pos2.x && pos1.y === pos2.y;
+    }
+
+    function refreshBackgroud() {
+      ctx.fillStyle = 'black';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    function printPosition(pos, collor) {
+      ctx.beginPath();
+      ctx.fillStyle = collor || 'purple';
+      ctx.arc(pos.x, pos.y, 10, 0, Math.PI * 2, true);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    function calculateNextPosition(source, target, move) {
+      let newPosX = source.x;
+      let newPosY = source.y;
+      const forwardX = target.x > newPosX ? 1 : -1;
+      const forwardY = target.y > newPosY ? 1 : -1;
+      if (newPosX !== target.x) {
+        newPosX += move.x * forwardX;
+        if ((target.x - source.x) * (target.x - newPosX) < 1) {
+          newPosX = target.x;
+        }
+      }
+
+      if (newPosY !== target.y) {
+        newPosY += move.y * forwardY;
+        if ((target.y - source.y) * (target.y - newPosY) < 1) {
+          newPosY = target.y;
+        }
+      }
+
+      return { x: newPosX, y: newPosY };
+    }
+
+  </script>
+</body>
+
+</html>
